@@ -1,36 +1,20 @@
 import Foundation
 
-public final class CodeParser {
-    private var consumers: [CodeTokenConsumer]
-    private let tokenizer: CodeTokenizer
+public final class CodeParser<Node: CodeNodeElement, Token: CodeTokenElement> where Node: CodeNodeElement, Token: CodeTokenElement {
+    private var consumers: [any CodeTokenConsumer<Node, Token>]
+    private let tokenizer: any CodeTokenizer<Token>
 
-    // Registered state is now reset for each parse run
-
-    public init(language: CodeLanguage) {
+    public init(language: any CodeLanguage<Node, Token>) {
         self.tokenizer = language.tokenizer
         self.consumers = language.consumers
     }
 
+    public func parse(_ input: String, rootNode: CodeNode<Node>) -> (node: CodeNode<Node>, context: CodeContext<Node>) {
+        let normalizedInput = normalizeInput(input)
+        let tokens = tokenizer.tokenize(normalizedInput)
+        var context = CodeContext(current: rootNode)
 
-
-    public func parse(_ input: String, rootNode: CodeNode) -> (node: CodeNode, context: CodeContext) {
-        let tokens = tokenizer.tokenize(input)
-        var context = CodeContext(tokens: tokens, currentNode: rootNode, errors: [])
-
-        // Infinite loop protection: track token count progression
-        var lastCount = context.tokens.count + 1
-
-        while let token = context.tokens.first {
-            // Infinite loop detection - if token count hasn't decreased, terminate parsing immediately
-            if context.tokens.count == lastCount {
-                context.errors.append(CodeError("Infinite loop detected: parser stuck at token \(token.kindDescription). Terminating parse to prevent hang.", range: token.range))
-                break
-            }
-            lastCount = context.tokens.count
-
-            if token.kindDescription == "eof" {
-                break
-            }
+        for token in tokens {
             var matched = false
             for consumer in consumers {
                 if consumer.consume(context: &context, token: token) {
@@ -40,11 +24,20 @@ public final class CodeParser {
             }
 
             if !matched {
-                context.errors.append(CodeError("Unrecognized token \(token.kindDescription)", range: token.range))
-                context.tokens.removeFirst()
+                context.errors.append(CodeError("Unrecognized token \(token.element)", range: token.range))
             }
         }
 
         return (rootNode, context)
+    }
+
+    /// Normalizes input string to handle line ending inconsistencies and other common issues
+    /// This ensures consistent behavior across different platforms and input sources
+    private func normalizeInput(_ input: String) -> String {
+        // Normalize line endings: Convert CRLF (\r\n) and CR (\r) to LF (\n)
+        // This prevents issues with different line ending conventions
+        return input
+            .replacingOccurrences(of: "\r\n", with: "\n")  // Windows CRLF -> Unix LF
+            .replacingOccurrences(of: "\r", with: "\n")    // Classic Mac CR -> Unix LF
     }
 }

@@ -1,7 +1,9 @@
 import Foundation
 
-public class CodeNode {
-    public let type: any CodeElement
+public protocol CodeNodeElement: CaseIterable, RawRepresentable where RawValue == String {}
+
+public class CodeNode<Element: CodeNodeElement> where Element: CodeNodeElement {
+    public let element: Element
     public var value: String
     public weak var parent: CodeNode?
     public var children: [CodeNode] = []
@@ -9,7 +11,7 @@ public class CodeNode {
 
     public var id: Int {
         var hasher = Hasher()
-        hasher.combine(String(describing: type))
+        hasher.combine(String(describing: element))
         hasher.combine(value)
         for child in children {
             hasher.combine(child.id)
@@ -17,54 +19,55 @@ public class CodeNode {
         return hasher.finalize()
     }
 
-    public init(type: any CodeElement, value: String, range: Range<String.Index>? = nil) {
-        self.type = type
+    public init(element: Element, value: String, range: Range<String.Index>? = nil) {
+        self.element = element
         self.value = value
         self.range = range
     }
 
-    public func addChild(_ node: CodeNode) {
+    /// Add a child node to this node
+    public func append(_ node: CodeNode) {
         node.parent = self
         children.append(node)
     }
 
     /// Insert a child node at the specified index
-    public func insertChild(_ node: CodeNode, at index: Int) {
+    public func insert(_ node: CodeNode, at index: Int) {
         node.parent = self
         children.insert(node, at: index)
     }
 
     /// Remove and return the child node at the given index
     @discardableResult
-    public func removeChild(at index: Int) -> CodeNode {
+    public func remove(at index: Int) -> CodeNode {
         let removed = children.remove(at: index)
         removed.parent = nil
         return removed
     }
 
+    /// Detach this node from its parent
+    public func remove() {
+        parent?.children.removeAll { $0 === self }
+        parent = nil
+    }
+
     /// Replace the child node at the given index with another node
-    public func replaceChild(at index: Int, with node: CodeNode) {
+    public func replace(at index: Int, with node: CodeNode) {
         children[index].parent = nil
         node.parent = self
         children[index] = node
     }
 
-    /// Detach this node from its parent
-    public func removeFromParent() {
-        parent?.children.removeAll { $0 === self }
-        parent = nil
-    }
-
     /// Depth-first traversal of this node and all descendants
-    public func traverseDepthFirst(_ visit: (CodeNode) -> Void) {
+    public func dfs(_ visit: (CodeNode) -> Void) {
         visit(self)
         for child in children {
-            child.traverseDepthFirst(visit)
+            child.dfs(visit)
         }
     }
 
     /// Breadth-first traversal of this node and all descendants
-    public func traverseBreadthFirst(_ visit: (CodeNode) -> Void) {
+    public func bfs(_ visit: (CodeNode) -> Void) {
         var queue: [CodeNode] = [self]
         while !queue.isEmpty {
             let node = queue.removeFirst()
@@ -85,17 +88,17 @@ public class CodeNode {
     }
 
     /// Return all nodes in the subtree satisfying the predicate
-    public func findAll(where predicate: (CodeNode) -> Bool) -> [CodeNode] {
+    public func nodes(where predicate: (CodeNode) -> Bool) -> [CodeNode] {
         var results: [CodeNode] = []
-        traverseDepthFirst { node in
+        dfs { node in
             if predicate(node) { results.append(node) }
         }
         return results
     }
 
     /// Number of nodes in this subtree including this node
-    public var subtreeCount: Int {
-        1 + children.reduce(0) { $0 + $1.subtreeCount }
+    public var count: Int {
+        1 + children.reduce(0) { $0 + $1.count }
     }
 
     /// Depth of this node from the root node
